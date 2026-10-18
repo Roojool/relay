@@ -7,7 +7,7 @@
 # FalkorDB: local dev uses the shared FalkorDB at redis://127.0.0.1:16380.
 # In Docker Compose, FALKORDB_URL=redis://falkordb:6379 (see compose.yaml).
 
-FROM node:22-alpine AS deps
+FROM node:22-slim AS deps
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
@@ -19,7 +19,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
