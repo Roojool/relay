@@ -1,0 +1,36 @@
+# Relay — Docker Compose (local development / HF Space Docker reference)
+#
+#   docker compose up
+#
+# The Next.js app talks to FalkorDB through the `falkordb` service so the
+# stack is self-contained. On this workstation the shared FalkorDB also
+# listens at redis://127.0.0.1:16380 (used by .env.local / local dev).
+#
+# All fixture/scenario data is fictional.
+
+services:
+  relay:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - FALKORDB_URL=redis://falkordb:6379
+      - SESSION_SECRET=relay-compose-secret-do-not-commit
+    depends_on:
+      falkordb:
+        condition: service_started
+    restart: unless-stopped
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "16380:6379"
+    volumes:
+      - relay-graph-data:/data
+    restart: unless-stopped
+
+volumes:
+  relay-graph-data:
