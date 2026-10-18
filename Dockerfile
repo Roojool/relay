@@ -7,36 +7,25 @@
 # FalkorDB: local dev uses the shared FalkorDB at redis://127.0.0.1:16380.
 # In Docker Compose, FALKORDB_URL=redis://falkordb:6379 (see compose.yaml).
 
-FROM node:22-slim AS deps
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
-ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci
-
-FROM deps AS builder
-WORKDIR /app
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:22-slim AS runner
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 # Override at runtime: the shared FalkorDB is reachable at 127.0.0.1:16380 on this host.
 ENV FALKORDB_URL=redis://127.0.0.1:16380
 ENV SESSION_SECRET=relay-demo-secret-do-not-use-in-production
-
-# Next.js standalone output + static assets + production node_modules (falkordb, zod, etc.)
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
-
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+USER node
 EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:3000/api/health',(r)=>{process.exit(r.statusCode===200?0:1);}).on('error',()=>process.exit(1));"
-
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.json()).then(h=>process.exit(h.ok===true?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "server.js"]
