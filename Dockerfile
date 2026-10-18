@@ -35,8 +35,9 @@ ENV FALKORDB_URL=redis://127.0.0.1:6379
 # Signs anonymous workspace cookies. Override with a real secret on your host.
 ENV SESSION_SECRET=relay-demo-secret-change-on-host
 
-# Runtime libs required by the FalkorDB engine + module (openssl3, zstd, libstdc++)
-RUN apt-get update && apt-get install -y --no-install-recommends libssl3 libzstd1 libstdc++6 ca-certificates && rm -rf /var/lib/apt/lists/*
+# Runtime libs required by the FalkorDB engine + module.
+# libgomp1 is dlopen'd by falkordb.so at runtime (OpenMP) - invisible to ldd, fatal on Railway.
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 libzstd1 libstdc++6 libgomp1 ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # FalkorDB engine (glibc binaries + module from the official image)
 COPY --from=db /usr/local/bin/redis-server /usr/local/bin/redis-server
