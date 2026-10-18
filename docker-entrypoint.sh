@@ -22,8 +22,10 @@ start_falkordb() {
   fi
 
   echo "[entrypoint] starting FalkorDB on 127.0.0.1:6379 (data: $DATA_DIR)"
+  # stdout/stderr are captured so the platform logs always show WHY redis failed (OOM, libs, etc.)
   "$REDIS_BIN" --loadmodule /var/lib/falkordb/bin/falkordb.so --dir "$DATA_DIR" \
-    --bind 127.0.0.1 --protected-mode no --save "" --appendonly no --daemonize no &
+    --bind 127.0.0.1 --protected-mode no --save "" --appendonly no --daemonize no \
+    --maxmemory 192mb > /tmp/falkordb.log 2>&1 &
   REDIS_PID=$!
 
   # Wait for readiness using the bundled node (no reliance on shell /dev/tcp support).
@@ -31,19 +33,34 @@ start_falkordb() {
   while [ "$i" -lt 60 ]; do
     if node -e "const net=require('net');const s=net.connect(6379,'127.0.0.1',()=>{s.write('PING\r\n')});s.on('data',d=>process.exit(d.toString().includes('PONG')?0:1));s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1500);" >/dev/null 2>&1; then
       echo "[entrypoint] FalkorDB ready (PONG)"
-      export FALKORDB_URL="redis://127.0.0.1:6379"
+      return 0
+    fi
+    if ! kill -0 "$REDIS_PID" 2>/dev/null; then
+      echo "[entrypoint] redis-server process exited. Log:"
+      tail -n 20 /tmp/falkordb.log 2>/dev/null || true
       return 0
     fi
     i=$((i + 1))
     sleep 0.5
   done
-  echo "[entrypoint] WARNING: FalkorDB did not answer PING in 30s; continuing (app will surface graph_unavailable honestly)"
+  echo "[entrypoint] WARNING: FalkorDB did not answer PING in 30s (log tail follows)"
+  tail -n 20 /tmp/falkordb.log 2>/dev/null || true
   return 0
 }
 
+# Bind the HTTP port FIRST (platforms health-check the port immediately; the app degrades
+# honestly for a few seconds while FalkorDB finishes booting).
 if [ "${RUN_FALKORDB:-1}" = "1" ]; then
-  start_falkordb
+  start_falkordb &
+  DB_BOOT_PID=$!
 fi
 
 echo "[entrypoint] starting Next.js standalone on 0.0.0.0:$PORT (FALKORDB_URL=${FALKORDB_URL:-unset})"
-exec node server.js
+node server.js &
+NEXT_PID=$!
+
+if [ -n "${DB_BOOT_PID:-}" ]; then
+  wait "$DB_BOOT_PID" 2>/dev/null || true
+fi
+
+wait "$NEXT_PID"
